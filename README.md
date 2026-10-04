@@ -78,9 +78,10 @@ local DHCP/NAT disabled.
 ## Build
 
 ```sh
-# 1. Get a clean OpenWrt tree (matching version)
-git clone https://git.openwrt.org/openwrt/openwrt.git
-cd openwrt && git checkout <tag/commit for r33051>
+# 1. Get a clean OpenWrt tree at the exact release tag (r33051 == v25.12.5)
+#    Use the release branch `-b openwrt-25.12` instead to track patch updates.
+git clone -b v25.12.5 --depth 1 https://git.openwrt.org/openwrt/openwrt.git
+cd openwrt
 
 # 2. Overlay this repository
 cp -a /path/to/wr1200js-openwrt-custom/files      .
@@ -177,9 +178,10 @@ LuCI 给静态资源的 `?v=` 版本号取自 `/lib/apk/db/installed` 的 mtime�
 ## 构建
 
 ```sh
-# 1. 拉取干净的 OpenWrt 源码（对应版本）
-git clone https://git.openwrt.org/openwrt/openwrt.git
-cd openwrt && git checkout <与 r33051 对应的 tag/commit>
+# 1. 拉取干净的 OpenWrt 源码，指定发布标签（r33051 对应 v25.12.5）
+#    如需跟随补丁更新，可改用发布分支 `-b openwrt-25.12`
+git clone -b v25.12.5 --depth 1 https://git.openwrt.org/openwrt/openwrt.git
+cd openwrt
 
 # 2. 叠加本仓库
 cp -a /path/to/wr1200js-openwrt-custom/files      .

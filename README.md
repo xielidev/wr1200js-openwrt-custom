@@ -104,9 +104,15 @@ the image to flash.
 ### Cloud build (GitHub Actions)
 
 `.github/workflows/build.yml` builds the firmware on GitHub runners. Trigger it
-manually from the **Actions** tab (or push a `v*` tag); the resulting sysupgrade
-image is attached as the `wr1200js-firmware` artifact. The runner has only 2
-cores, so a from-scratch build takes a long time (up to the 6h job limit).
+manually from the **Actions** tab (or push a `v*` tag). Artifacts:
+
+- every run attaches the sysupgrade image as the `wr1200js-firmware` artifact;
+- a `v*` tag push additionally creates a GitHub Release and uploads the images
+  to it.
+
+The build enables OpenWrt `ccache` (via `CONFIG_CCACHE=y`) and caches
+`openwrt/.ccache` between runs, so rebuilds are much faster. The runner has only
+2 cores, so the first from-scratch build is slow (up to the 6h job limit).
 
 ## License
 
@@ -209,8 +215,14 @@ make defconfig && make -j$(nproc)
 ### 云端自动编译（GitHub Actions）
 
 `.github/workflows/build.yml` 在 GitHub 运行器上编译固件：在 **Actions** 页手动
-触发（或推送 `v*` 标签）即可，产物 `sysupgrade` 镜像会作为 `wr1200js-firmware`
-工件供下载。运行器只有 2 核，从零完整编译耗时较长（可能逼近 6 小时的任务上限）。
+触发（或推送 `v*` 标签）。产物：
+
+- 每次运行都会把 `sysupgrade` 镜像作为 `wr1200js-firmware` 工件附加；
+- 推送 `v*` 标签时额外创建一个 GitHub Release，并把镜像上传其中。
+
+构建会启用 OpenWrt `ccache`（`CONFIG_CCACHE=y`）并在多次运行间缓存
+`openwrt/.ccache`，因此重复编译会快很多。运行器只有 2 核，首次从零编译较慢
+（可能逼近 6 小时的任务上限）。
 
 ## 许可
 

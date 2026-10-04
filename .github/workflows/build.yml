@@ -1,15 +1,15 @@
 name: Build firmware
 
 on:
-  # Manual trigger from the Actions tab / gh CLI.
+  # Manual trigger from the Actions tab.
   workflow_dispatch:
-  # Also build when a version tag (e.g. v25.12.5-r1) is pushed.
+  # Build and publish a release when a version tag (e.g. v25.12.5-r1) is pushed.
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -18,6 +18,11 @@ jobs:
     # A from-scratch OpenWrt build on a 2-core runner is slow; GitHub's hard
     # limit is 6h, so cap a little below it.
     timeout-minutes: 350
+
+    env:
+      # OpenWrt puts its ccache in $(TOPDIR)/.ccache and only reads CCACHE_DIR
+      # from the environment for size/behaviour knobs, so set the size here.
+      CCACHE_MAXSIZE: 2G
 
     steps:
       - name: Checkout this overlay repo
@@ -54,6 +59,28 @@ jobs:
           cp -a package/luci-app-socat package/luci-app-dynv6 openwrt/package/
           cp .config openwrt/.config
 
+      # OpenWrt's ccache lives in $(TOPDIR)/.ccache. Restore it only after the
+      # clone: git clone requires an empty target, and actions/cache creates the
+      # path it restores. The post-step saves updates after the build.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: openwrt/.ccache
+          key: ccache-${{ runner.os }}-${{ github.ref_name }}-${{ hashFiles('.config') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ github.ref_name }}-
+            ccache-${{ runner.os }}-
+
+      # CONFIG_CCACHE only has a prompt when DEVEL is set, so defconfig would
+      # otherwise drop it. DEVEL merely exposes extra developer options; it does
+      # not change the resulting image on its own.
+      - name: Enable ccache
+        run: |
+          cd openwrt
+          sed -i 's/^# CONFIG_DEVEL is not set/CONFIG_DEVEL=y/' .config
+          sed -i '/^CONFIG_CCACHE=/d; /^# CONFIG_CCACHE is not set/d' .config
+          echo 'CONFIG_CCACHE=y' >> .config
+
       - name: Update and install feeds
         run: |
           cd openwrt
@@ -66,6 +93,7 @@ jobs:
           git config --global user.name "OpenWrt Builder"
           git config --global user.email "builder@localhost"
           make defconfig
+          grep -E '^CONFIG_(CCACHE|DEVEL)' .config
 
       - name: Download sources
         run: |
@@ -85,9 +113,19 @@ jobs:
           cp openwrt/bin/targets/ramips/mt7621/sha256sums      out/sha256sums.txt || true
           ls -la out
 
-      - name: Upload firmware
+      - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: wr1200js-firmware
           path: out/*
           if-no-files-found: error
+
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Automated firmware build for ${GITHUB_REF_NAME}." \
+          || gh release upload "${GITHUB_REF_NAME}" out/* --clobber

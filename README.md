@@ -1,4 +1,115 @@
+# YouHua WR1200JS — Custom OpenWrt
+
+**English** | [中文](#中文)
+
+Custom OpenWrt overlay and packages for the **YouHua WR1200JS** router
+(MediaTek MT7621AT, 16 MB NOR flash, 128 MB RAM).
+
+This repository is **not** a full OpenWrt source tree — it only holds the
+custom parts. Copy `files/`, `package/` and `.config` onto a clean OpenWrt
+tree and build.
+
+- Base firmware: OpenWrt 25.12.5 (`r33051-f5dae5ece4`)
+- Target: `ramips/mt7621`, device `youhua_wr1200js`
+- Package manager: `apk`
+- LuCI defaults to Chinese, bootstrap theme
+
+## Layout
+
+```
+files/                         # files overlaid onto the firmware rootfs (OpenWrt files/ mechanism)
+  etc/uci-defaults/
+    20-fstab-anon-mount        # enable anonymous USB auto-mount (fstab anon_mount/auto_mount)
+    96-luci-cache-bust         # re-stamp the apk DB on first boot to bust LuCI static-resource cache
+    99-br0-dumbap              # configure br0 as a dumb AP (no local DHCP/NAT)
+  etc/init.d/socat             # socat forwarding service (expands port ranges into instances)
+  etc/hotplug.d/mount/
+    70-ksmbd-tune              # fix ksmbd auto-shares: /mnt/* read/write, drop risky rom/overlay shares
+
+package/
+  luci-app-socat/              # LuCI front-end for socat (single port or range)
+  luci-app-dynv6/              # LuCI front-end for dynv6.com dynamic DNS
+
+.config                        # full build configuration
+.config.seed                   # minimal seed config (target device + key packages)
+```
+
+## Features
+
+### 1. socat port forwarding (with port ranges)
+`package/luci-app-socat` + `files/etc/init.d/socat`.
+
+- The UI accepts a single port (`8080`) or a range (`40001-40003`).
+- The init script **expands** a range into one socat instance per port
+  (managed by procd, kept alive with `respawn`).
+- A single rule spans at most 64 ports (`MAX_PORTS`) so a typo such as
+  `1-65535` cannot spawn tens of thousands of processes.
+- Supports TCP/UDP, IPv6 listeners and per-interface bind addresses that are
+  resolved on every start (so they follow upstream prefix changes).
+- Listen address uses `reuseaddr,fork`: **one master process per port, a
+  forked child per accepted connection**.
+
+> Note: socat is a userspace relay and is **not** covered by kernel/hardware
+> flow offloading (flow offload only applies to forwarded traffic). For high
+> bandwidth (> 200 Mbps) prefer nftables DNAT.
+
+### 2. USB network share (ksmbd)
+`files/etc/uci-defaults/20-fstab-anon-mount` + `files/etc/hotplug.d/mount/70-ksmbd-tune`.
+
+- A plugged-in USB disk is auto-mounted by `blockd` under `/mnt/<dev>`.
+- ksmbd's own hotplug creates a share per block device; this script then tunes it:
+  - `/mnt/*` (real storage) → **read/write** (`read only = no`), guest allowed
+  - anything else (`/rom`, `/rom/overlay`, ... which contain `/etc/shadow` and
+    the dropbear host keys) → **share removed**, so nothing leaks anonymously
+
+### 3. LuCI static-resource cache busting
+`files/etc/uci-defaults/96-luci-cache-bust`.
+
+LuCI derives the `?v=` version appended to static resources from the mtime of
+`/lib/apk/db/installed`. Reproducible builds pin those mtimes to
+`SOURCE_DATE_EPOCH`, so the version never changes across builds and browsers
+keep serving a stale JavaScript cache, hiding UI changes. The script re-stamps
+the mtime on first boot so that every flash yields a new `?v=`.
+
+### 4. Dumb AP mode
+`files/etc/uci-defaults/99-br0-dumbap`: configure br0 as an access point with
+local DHCP/NAT disabled.
+
+## Build
+
+```sh
+# 1. Get a clean OpenWrt tree (matching version)
+git clone https://git.openwrt.org/openwrt/openwrt.git
+cd openwrt && git checkout <tag/commit for r33051>
+
+# 2. Overlay this repository
+cp -a /path/to/wr1200js-openwrt-custom/files      .
+cp -a /path/to/wr1200js-openwrt-custom/package/*  package/
+cp /path/to/wr1200js-openwrt-custom/.config       .config
+
+# 3. Update feeds and build
+./scripts/feeds update -a && ./scripts/feeds install -a
+make defconfig && make -j$(nproc)
+```
+
+Output lands in `bin/targets/ramips/mt7621/`; `*-squashfs-sysupgrade.bin` is
+the image to flash.
+
+> Tip: after editing `files/`, delete `build_dir/.../root.squashfs` plus
+> `bin/targets/.../*.bin`, `*.manifest` and `sha256sums*` before rebuilding —
+> `files/` is not an explicit dependency of the rootfs target, so the image
+> would otherwise not be regenerated.
+
+## License
+
+The LuCI applications here are Apache-2.0; the remaining scripts follow
+OpenWrt conventions.
+
+---
+
 # YouHua WR1200JS 定制 OpenWrt
+
+[English](#youhua-wr1200js--custom-openwrt) | **中文**
 
 友华 **WR1200JS**（MediaTek MT7621AT，16MB NOR Flash，128MB RAM）路由器上运行的
 自定义 OpenWrt 配置与固件叠加层（overlay）。

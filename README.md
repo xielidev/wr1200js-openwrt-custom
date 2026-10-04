@@ -101,6 +101,13 @@ the image to flash.
 > `files/` is not an explicit dependency of the rootfs target, so the image
 > would otherwise not be regenerated.
 
+### Cloud build (GitHub Actions)
+
+`.github/workflows/build.yml` builds the firmware on GitHub runners. Trigger it
+manually from the **Actions** tab (or push a `v*` tag); the resulting sysupgrade
+image is attached as the `wr1200js-firmware` artifact. The runner has only 2
+cores, so a from-scratch build takes a long time (up to the 6h job limit).
+
 ## License
 
 The LuCI applications here are Apache-2.0; the remaining scripts follow
@@ -198,6 +205,12 @@ make defconfig && make -j$(nproc)
 > 提示：修改 `files/` 后重新编译前，需先删除 `build_dir/.../root.squashfs` 与
 > `bin/targets/.../*.bin`、`*.manifest`、`sha256sums*`，否则镜像不会重新生成
 > （`files/` 不是 rootfs 目标的显式依赖）。
+
+### 云端自动编译（GitHub Actions）
+
+`.github/workflows/build.yml` 在 GitHub 运行器上编译固件：在 **Actions** 页手动
+触发（或推送 `v*` 标签）即可，产物 `sysupgrade` 镜像会作为 `wr1200js-firmware`
+工件供下载。运行器只有 2 核，从零完整编译耗时较长（可能逼近 6 小时的任务上限）。
 
 ## 许可
 

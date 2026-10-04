@@ -1,0 +1,14 @@
+{
+	"admin/services/dynv6": {
+		"title": "Dynv6 DDNS",
+		"order": 61,
+		"action": {
+			"type": "view",
+			"path": "dynv6/dynv6"
+		},
+		"depends": {
+			"acl": [ "luci-app-dynv6" ],
+			"uci": { "dynv6": true }
+		}
+	}
+}

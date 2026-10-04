@@ -1,0 +1,20 @@
+#!/bin/sh
+# Mount unconfigured block devices automatically.
+#
+# With anon_mount enabled, /sbin/block mounts a device that has no entry in
+# /etc/config/fstab at /mnt/<device> - e.g. a USB stick plugged in at runtime
+# shows up as /mnt/sda1 without any manual mount point setup, so it can be
+# shared straight away.
+#
+# block-mount generates /etc/config/fstab on first boot (10-fstab); that file
+# only defines the defaults, which have anon_mount disabled.
+
+[ -f /etc/config/fstab ] || block detect > /etc/config/fstab 2>/dev/null
+
+uci -q get fstab.@global[0] >/dev/null 2>&1 || uci add fstab global >/dev/null 2>&1
+
+uci -q set fstab.@global[0].anon_mount='1'
+uci -q set fstab.@global[0].auto_mount='1'
+uci -q commit fstab
+
+exit 0

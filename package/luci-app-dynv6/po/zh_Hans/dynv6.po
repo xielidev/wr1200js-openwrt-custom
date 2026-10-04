@@ -1,0 +1,46 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-dynv6\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 00:00+0800\n"
+"PO-Revision-Date: 2026-10-03 00:00+0800\n"
+"Last-Translator: OpenWrt\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Dynv6 DDNS"
+msgstr "Dynv6 动态域名"
+
+msgid "Publish the IPv6 address of this device to a dynv6 host name, so it stays reachable when the upstream prefix changes."
+msgstr "把本机的 IPv6 地址上报到 dynv6 主机名，在上游前缀变化时仍可通过域名访问。"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Logical interface whose IPv6 address is published."
+msgstr "要上报 IPv6 地址的逻辑接口。"
+
+msgid "Host name"
+msgstr "主机名"
+
+msgid "dynv6 host to update, for example myrouter.dynv6.net"
+msgstr "需要更新的 dynv6 主机名，例如 myrouter.dynv6.net"
+
+msgid "API token"
+msgstr "API 令牌"
+
+msgid "HTTP update token of the host above, from the dynv6 web interface."
+msgstr "上面主机名对应的 HTTP 更新令牌，在 dynv6 网站中获取。"
+
+msgid "Update now"
+msgstr "立即更新"
+
+msgid "No output."
+msgstr "无输出。"

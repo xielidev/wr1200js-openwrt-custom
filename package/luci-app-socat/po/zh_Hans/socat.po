@@ -1,0 +1,97 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-socat\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 00:00+0800\n"
+"PO-Revision-Date: 2026-10-01 00:00+0800\n"
+"Last-Translator: OpenWrt\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Socat"
+msgstr "Socat"
+
+msgid "Socat is a powerful bidirectional data relay tool. Configure port forwarding rules below; each rule listens on the given address/port and forwards all traffic to the target address/port."
+msgstr "Socat 是一款强大的双向数据中继工具。在下方配置端口转发规则；每条规则在指定的地址/端口上监听，并将所有流量转发到目标地址/端口。"
+
+msgid "Forwarding Rules"
+msgstr "转发规则"
+
+msgid "General Settings"
+msgstr "常规设置"
+
+msgid "Unnamed rule"
+msgstr "未命名规则"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Forwarding"
+msgstr "转发"
+
+msgid "not configured"
+msgstr "未配置"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Protocol"
+msgstr "协议"
+
+msgid "Target protocol"
+msgstr "目标协议"
+
+msgid "TCP (IPv4)"
+msgstr "TCP（IPv4）"
+
+msgid "TCP6 (IPv6)"
+msgstr "TCP6（IPv6）"
+
+msgid "UDP (IPv4)"
+msgstr "UDP（IPv4）"
+
+msgid "UDP6 (IPv6)"
+msgstr "UDP6（IPv6）"
+
+msgid "Listen address"
+msgstr "监听地址"
+
+msgid "Listen mode"
+msgstr "监听方式"
+
+msgid "All interfaces"
+msgstr "全部接口"
+
+msgid "WAN interface"
+msgstr "WAN 接口"
+
+msgid "Specified interface"
+msgstr "指定接口"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Custom address"
+msgstr "自定义地址"
+
+msgid "Listen port"
+msgstr "监听端口"
+
+msgid "Target address"
+msgstr "目标地址"
+
+msgid "Target port"
+msgstr "目标端口"
+
+msgid "Run as user"
+msgstr "运行用户"
+
+msgid "New rule"
+msgstr "新规则"
+
+msgid "A port may be given as a single port or as a range such as 10001-10010. Every port of a range is forwarded separately."
+msgstr "端口可以填单个端口，也可以填端口段（如 10001-10010）。端口段中的每个端口都会被单独转发。"

@@ -1,0 +1,19 @@
+{
+	"luci-app-socat": {
+		"description": "Grant access to socat configuration",
+		"read": {
+			"ubus": {
+				"network.interface.wan": [ "status" ],
+				"network.interface": [ "dump" ]
+			},
+			"uci": [ "socat", "network", "wireless", "luci" ],
+			"file": {
+				"/etc/init.d/socat restart": [ "exec" ],
+				"/etc/init.d/socat reload": [ "exec" ]
+			}
+		},
+		"write": {
+			"uci": [ "socat" ]
+		}
+	}
+}

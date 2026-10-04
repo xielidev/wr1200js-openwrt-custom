@@ -1,0 +1,19 @@
+#!/bin/sh
+# Invalidate the browser cache for LuCI's static resources after a flash.
+#
+# LuCI builds the "?v=" cache-busting query it appends to every luci-static
+# JS/CSS URL from the mtime of the apk database (see luci-base ucode
+# runtime.uc: pkgs_update_time = stat('/lib/apk/db/installed').mtime).
+# Reproducible builds pin every image file to SOURCE_DATE_EPOCH, so that
+# mtime - and therefore the resource version - is identical across builds.
+# Browsers then keep serving the stale JavaScript cached under the unchanged
+# URL, which hides UI changes (e.g. the socat port-range validator) even
+# though the new file is present on the device.
+#
+# /lib/apk/db is not preserved by sysupgrade, so after every flash the
+# database carries the fixed image mtime again. Re-stamp it once on first
+# boot to give each firmware a distinct resource version.
+
+touch /lib/apk/db/installed
+
+exit 0

@@ -1,0 +1,19 @@
+{
+	"luci-app-dynv6": {
+		"description": "Grant access to dynv6 DDNS configuration",
+		"read": {
+			"ubus": {
+				"network.interface": [ "dump" ]
+			},
+			"uci": [ "dynv6", "network", "wireless", "luci" ],
+			"file": {
+				"/etc/init.d/dynv6 restart": [ "exec" ],
+				"/etc/init.d/dynv6 reload": [ "exec" ],
+				"/usr/libexec/dynv6-update": [ "exec" ]
+			}
+		},
+		"write": {
+			"uci": [ "dynv6" ]
+		}
+	}
+}

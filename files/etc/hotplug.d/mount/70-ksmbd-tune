@@ -1,0 +1,33 @@
+#!/bin/sh
+# Tune the shares that ksmbd-tools' own hotplug script (60-ksmbd) creates
+# automatically for every mounted block device.
+#
+#  - Real storage under /mnt (a plugged-in USB disk) is exposed read/write,
+#    since the point of this setup is a plain network share.
+#  - Everything else - notably the squashfs rootfs (/rom, mtdblock5) and the
+#    jffs2 overlay (/rom/overlay, mtdblock6) - is removed. Those shares would
+#    otherwise be served to anonymous guests, leaking /rom/overlay/etc/shadow
+#    and the dropbear host keys.
+#
+# Runs right after 60-ksmbd and edits the same volatile uci config
+# (/var/run/config/ksmbd) that /etc/init.d/ksmbd merges on top of
+# /etc/config/ksmbd, so the result is regenerated on every plug event.
+
+[ "$ACTION" = "add" ] || exit 0
+
+[ -f /var/run/config/ksmbd ] || exit 0
+uci -c /var/run/config -q get "ksmbd.$DEVICE" >/dev/null 2>&1 || exit 0
+
+case "$(uci -c /var/run/config -q get ksmbd.$DEVICE.path)" in
+	/mnt/*)
+		uci -c /var/run/config -q set "ksmbd.$DEVICE.read_only=no"
+		;;
+	*)
+		uci -c /var/run/config -q delete "ksmbd.$DEVICE"
+		;;
+esac
+
+uci -c /var/run/config -q commit ksmbd
+/etc/init.d/ksmbd reload
+
+exit 0

@@ -1,0 +1,119 @@
+#!/bin/sh
+#
+# Default network profile: dumb AP / bypass mode.
+#
+#   * every Ethernet port (lan1-4 + wan) is bridged into one bridge "br0"
+#   * br0 carries the static management address 192.168.90.10/24
+#   * no DHCP server is offered on br0 (the upstream 192.168.90.0/24 network
+#     provides addressing), and no IPv4 WAN/NAT is configured
+#   * the device still runs a DHCPv6 client ("wan6") on br0 to obtain a global
+#     IPv6 address, default route and delegated prefix from the upstream router
+#   * every wireless interface is bridged into br0 as well
+#
+# Runs once on first boot, after preinit config_generate and /sbin/wifi config.
+# The switch VLAN separation produced by board.d is deliberately left alone, so
+# the wan netdev joins the bridge without creating a loop.
+
+. /lib/functions.sh
+
+BRIDGE=""
+
+_find_bridge() {
+	local cfg="$1"
+	local name type
+
+	config_get name "$cfg" name
+	config_get type "$cfg" type
+
+	[ "$name" = "br-lan" ] && [ "$type" = "bridge" ] && BRIDGE="$cfg"
+}
+
+config_load network
+config_foreach _find_bridge device
+
+if [ -n "$BRIDGE" ]; then
+	uci -q set network.$BRIDGE.name='br0'
+else
+	BRIDGE='cfg_br0'
+	uci -q set network.$BRIDGE='device'
+	uci -q set network.$BRIDGE.name='br0'
+	uci -q set network.$BRIDGE.type='bridge'
+fi
+
+uci -q delete network.$BRIDGE.ports
+for port in lan1 lan2 lan3 lan4 wan; do
+	uci -q add_list network.$BRIDGE.ports="$port"
+done
+
+# LAN interface sits on br0 with a static management address
+uci -q delete network.lan.type
+uci -q delete network.lan.ifname
+uci -q set network.lan.device='br0'
+uci -q set network.lan.proto='static'
+uci -q set network.lan.ipaddr='192.168.90.10'
+uci -q set network.lan.netmask='255.255.255.0'
+uci -q delete network.lan.ip6assign
+uci -q delete network.lan.ip6hint
+uci -q delete network.lan.ip6class
+uci -q delete network.lan.dns
+uci -q add_list network.lan.dns='8.8.8.8'
+
+# all ports are bridged now, drop the routed IPv4 WAN interface
+uci -q delete network.wan
+
+# keep an IPv6 client on the bridge: this is how the device itself obtains a
+# global IPv6 address, a default route and a delegated prefix from the
+# upstream router.  The upstream router advertises on the same L2 segment, so
+# bridged clients get IPv6 directly and no RA/DHCPv6 server is run here.
+uci -q get network.wan6 >/dev/null || uci -q set network.wan6='interface'
+uci -q set network.wan6.proto='dhcpv6'
+uci -q set network.wan6.device='br0'
+uci -q set network.wan6.reqaddress='try'
+uci -q set network.wan6.reqprefix='auto'
+uci -q set network.wan6.norelease='1'
+
+# wan6 lives on the br0 bridge, so it belongs to the lan zone; this profile has
+# no wan interface and therefore no wan zone
+if [ -f /etc/config/firewall ]; then
+	lan_zone=""
+	wan_zone=""
+	_find_zones() {
+		local cfg="$1" name
+		config_get name "$cfg" name
+		[ "$name" = "lan" ] && lan_zone="$cfg"
+		[ "$name" = "wan" ] && wan_zone="$cfg"
+	}
+	config_load firewall
+	config_foreach _find_zones zone
+
+	[ -n "$wan_zone" ] && uci -q delete firewall.$wan_zone.network
+	[ -n "$lan_zone" ] && uci -q add_list firewall.$lan_zone.network='wan6'
+	uci -q commit firewall
+fi
+
+# dumb AP: never hand out addresses on br0
+uci -q set dhcp.lan.ignore='1'
+uci -q delete dhcp.lan.start
+uci -q delete dhcp.lan.limit
+uci -q delete dhcp.lan.leasetime
+uci -q delete dhcp.lan.ra
+uci -q delete dhcp.lan.ra_slaac
+uci -q delete dhcp.lan.ra_flags
+uci -q delete dhcp.lan.dhcpv6
+uci -q delete dhcp.lan.dhcpv4
+uci -q delete dhcp.lan.master
+
+# keep wireless clients in the same bridge as the wired ports
+if [ -f /etc/config/wireless ]; then
+	config_load wireless
+	_attach_wifi() {
+		uci -q set wireless.$1.network='lan'
+	}
+	config_foreach _attach_wifi wifi-iface
+	uci -q commit wireless
+fi
+
+uci -q commit network
+uci -q commit dhcp
+
+exit 0

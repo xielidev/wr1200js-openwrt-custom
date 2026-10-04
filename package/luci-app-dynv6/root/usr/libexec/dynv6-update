@@ -1,0 +1,103 @@
+#!/bin/sh
+#
+# Publish the IPv6 address of a network interface to dynv6.
+#
+#   dynv6-update        update only when the address changed
+#   dynv6-update -f     update even when the address is unchanged
+#
+# Configuration, uci "dynv6" section "main":
+#   enabled     run at all
+#   interface   logical interface whose IPv6 address is published (default wan6)
+#   hostname    dynv6 host, e.g. myrouter.dynv6.net
+#   token       dynv6 HTTP update token of that host
+#
+# Exit status: 0 when the record is up to date, 1 on failure.
+
+. /lib/functions.sh
+
+API='https://dynv6.com/api/update'
+STATE_FILE='/var/run/dynv6/last'
+
+force=0
+[ "$1" = "-f" ] && force=1
+
+config_load dynv6
+config_get_bool enabled main enabled 0
+config_get iface    main interface wan6
+config_get hostname main hostname
+config_get token    main token
+
+say() {
+	logger -t dynv6 "$*"
+	echo "$*"
+}
+
+[ "$enabled" = "1" ] || { say 'not enabled in configuration'; exit 0; }
+
+if [ -z "$hostname" ] || [ -z "$token" ]; then
+	say 'hostname or API token not configured yet'
+	exit 1
+fi
+
+# Read the global IPv6 addresses netifd knows for the interface and pick the one
+# to publish: prefer the address handed out by the upstream DHCPv6 server (a
+# /128), otherwise fall back to the first global address, which covers
+# SLAAC-only networks.
+#
+# Addresses whose preferred lifetime has run out (deprecated - what is left
+# behind after the upstream prefix changed) are skipped, so the record never
+# points at an address that is on its way out.
+get_ipv6() {
+	local ifc="$1" status addr mask pref n i a m p best first
+
+	status=$(ubus call network.interface."$ifc" status 2>/dev/null) || return 1
+
+	addr=$(echo "$status" | jsonfilter -e '@["ipv6-address"][*].address' 2>/dev/null)
+	mask=$(echo "$status" | jsonfilter -e '@["ipv6-address"][*].mask' 2>/dev/null)
+	pref=$(echo "$status" | jsonfilter -e '@["ipv6-address"][*].preferred' 2>/dev/null)
+	[ -n "$addr" ] || return 0
+
+	n=$(printf '%s\n' "$addr" | wc -l)
+	i=1
+	while [ "$i" -le "$n" ]; do
+		a=$(printf '%s\n' "$addr" | sed -n "${i}p")
+		m=$(printf '%s\n' "$mask" | sed -n "${i}p")
+		p=$(printf '%s\n' "$pref" | sed -n "${i}p")
+
+		if [ "$p" != "0" ]; then
+			[ -n "$first" ] || first="$a"
+			if [ "$m" = "128" ]; then
+				best="$a"
+				break
+			fi
+		fi
+		i=$((i + 1))
+	done
+
+	echo "${best:-$first}"
+}
+
+ipv6=$(get_ipv6 "$iface")
+if [ -z "$ipv6" ]; then
+	say "$iface has no global IPv6 address yet"
+	exit 1
+fi
+
+if [ "$force" = "0" ] && [ "$(cat "$STATE_FILE" 2>/dev/null)" = "$ipv6" ]; then
+	say "$hostname already points to $ipv6"
+	exit 0
+fi
+
+response=$(uclient-fetch -q -O - --timeout=15 \
+	"$API?hostname=$hostname&token=$token&ipv6=$ipv6" 2>&1)
+rc=$?
+
+if [ "$rc" != "0" ]; then
+	say "update of $hostname failed: ${response:-fetch error $rc}"
+	exit 1
+fi
+
+mkdir -p "$(dirname "$STATE_FILE")"
+echo "$ipv6" > "$STATE_FILE"
+say "$hostname updated to $ipv6"
+exit 0

@@ -1,0 +1,311 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2008-2014 OpenWrt.org
+
+START=99
+STOP=99
+
+USE_PROCD=1
+PROG=/usr/bin/socat
+NAME=socat
+
+# Largest number of ports one rule may span. A range is turned into one socat
+# process per port, so this keeps a typo such as 1-65535 from spawning tens of
+# thousands of them.
+MAX_PORTS=64
+
+validate_section_socat()
+{
+	uci_load_validate socat socat "$1" "$2" \
+		'enable:bool:1' \
+		'user:string:root'
+}
+
+# Resolve the global IPv6 address of a logical interface, preferring the /128
+# handed out by the upstream DHCPv6 server. Deprecated addresses - the leftovers
+# of a previous upstream prefix - are skipped, so the result always exists.
+resolve_iface_ipv6()
+{
+	local ifc="$1" status addr mask pref n i a m p best first
+
+	status=$(ubus call network.interface."$ifc" status 2>/dev/null) || return 0
+	addr=$(echo "$status" | jsonfilter -e '@["ipv6-address"][*].address' 2>/dev/null)
+	mask=$(echo "$status" | jsonfilter -e '@["ipv6-address"][*].mask' 2>/dev/null)
+	pref=$(echo "$status" | jsonfilter -e '@["ipv6-address"][*].preferred' 2>/dev/null)
+	[ -n "$addr" ] || return 0
+
+	n=$(printf '%s\n' "$addr" | wc -l)
+	i=1
+	while [ "$i" -le "$n" ]; do
+		a=$(printf '%s\n' "$addr" | sed -n "${i}p")
+		m=$(printf '%s\n' "$mask" | sed -n "${i}p")
+		p=$(printf '%s\n' "$pref" | sed -n "${i}p")
+
+		if [ "$p" != "0" ]; then
+			[ -n "$first" ] || first="$a"
+			if [ "$m" = "128" ]; then
+				best="$a"
+				break
+			fi
+		fi
+		i=$((i + 1))
+	done
+
+	echo "${best:-$first}"
+}
+
+# Resolve the first IPv4 address of a logical interface.
+resolve_iface_ipv4()
+{
+	local ifc="$1" status
+
+	status=$(ubus call network.interface."$ifc" status 2>/dev/null) || return 0
+	echo "$status" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null
+}
+
+# Address a rule listens on, or an empty string to listen on every address.
+# The address is resolved on every start instead of being taken from the
+# config, so it follows the upstream prefix instead of going stale.
+resolve_bind()
+{
+	local sid="$1" mode proto iface lip
+
+	config_get mode  "$sid" listen_mode
+	config_get proto "$sid" proto
+	config_get iface "$sid" listen_iface
+	config_get lip   "$sid" listen_ip
+
+	if [ -z "$mode" ]; then
+		if [ -n "$iface" ]; then
+			mode=iface
+		elif [ -n "$lip" ]; then
+			mode=custom
+		else
+			mode=all
+		fi
+	fi
+
+	case "$mode" in
+	custom)
+		echo "$lip"
+		;;
+	wan)
+		case "${proto:-tcp}" in
+		*6) resolve_iface_ipv6 wan ;;
+		*)  resolve_iface_ipv4 wan ;;
+		esac
+		;;
+	iface)
+		[ -n "$iface" ] || return 0
+		case "${proto:-tcp}" in
+		*6) resolve_iface_ipv6 "$iface" ;;
+		*)  resolve_iface_ipv4 "$iface" ;;
+		esac
+		;;
+	esac
+}
+
+# True when the port specification spans more than one port.
+is_port_range()
+{
+	case "$1" in
+	*-*) return 0 ;;
+	esac
+	return 1
+}
+
+# True when a rule is bound to an interface address that does not exist yet.
+# Such a rule is left unstarted - falling back to "listen on every address"
+# would expose the port on all interfaces - and the interface trigger below
+# starts it as soon as the address shows up.
+bind_pending()
+{
+	local sid="$1" mode iface proto
+
+	config_get mode  "$sid" listen_mode
+	config_get iface "$sid" listen_iface
+	config_get proto "$sid" proto
+
+	if [ -z "$mode" ]; then
+		[ -n "$iface" ] && mode=iface || mode=all
+	fi
+
+	[ "$mode" = "iface" ] && [ -n "$iface" ] || return 1
+
+	case "${proto:-tcp}" in
+	*6) return 0 ;;
+	esac
+
+	return 1
+}
+
+# Print every port covered by a specification: a single port ("80") or an
+# inclusive range ("10000-10010"). Malformed input prints nothing.
+expand_ports()
+{
+	local spec="$1" lo hi i
+
+	case "$spec" in
+	*-*-*) return 0 ;;
+	*-*)   lo="${spec%%-*}"; hi="${spec##*-}" ;;
+	*)     lo="$spec";      hi="$spec" ;;
+	esac
+
+	case "$lo" in ''|*[!0-9]*) return 0 ;; esac
+	case "$hi" in ''|*[!0-9]*) return 0 ;; esac
+	[ "$lo" -ge 1 ] && [ "$hi" -ge "$lo" ] && [ "$hi" -le 65535 ] || return 0
+
+	i="$lo"
+	while [ "$i" -le "$hi" ]; do
+		echo "$i"
+		i=$((i + 1))
+	done
+}
+
+count_ports()
+{
+	printf '%s\n' "$1" | grep -c .
+}
+
+nth_port()
+{
+	printf '%s\n' "$1" | sed -n "${2}p"
+}
+
+# socat takes exactly two address arguments, so they are built separately and
+# handed over as individual arguments - that keeps the brackets of an IPv6 bind
+# from being treated as a shell glob.
+compose_listen_addr()
+{
+	local proto="$1" lp="$2" bind="$3" out
+
+	out="$(echo "$proto" | tr 'a-z' 'A-Z')-LISTEN:$lp"
+	if [ -n "$bind" ]; then
+		case "$proto" in
+		*6) out="$out,bind=[$bind]" ;;
+		*)  out="$out,bind=$bind" ;;
+		esac
+	fi
+
+	echo "$out,reuseaddr,fork"
+}
+
+compose_target_addr()
+{
+	local tproto="$1" tip="$2" tp="$3" TP
+
+	TP=$(echo "$tproto" | tr 'a-z' 'A-Z')
+
+	case "$tproto" in
+	*6) echo "$TP:[$tip]:$tp" ;;
+	*)  echo "$TP:$tip:$tp" ;;
+	esac
+}
+
+# Start one socat instance per forwarded port. A single port is just a range of
+# one, so both are handled here.
+start_rule_instances()
+{
+	local sid="$1" proto tproto lspec tspec tip bind user
+	local lports tports lcount tcount lp tp i laddr taddr
+
+	config_get proto  "$sid" proto
+	config_get tproto "$sid" target_proto
+	config_get lspec  "$sid" listen_port
+	config_get tspec  "$sid" target_port
+	config_get tip    "$sid" target_ip
+	config_get user   "$sid" user
+
+	proto="${proto:-tcp}"
+	tproto="${tproto:-$proto}"
+
+	[ -n "$lspec" ] && [ -n "$tip" ] && [ -n "$tspec" ] || {
+		logger -t socat "rule $sid is incomplete, skipped"
+		return 1
+	}
+
+	lports=$(expand_ports "$lspec")
+	tports=$(expand_ports "$tspec")
+	lcount=$(count_ports "$lports")
+	tcount=$(count_ports "$tports")
+
+	[ "$lcount" -gt 0 ] || {
+		logger -t socat "rule $sid has an invalid listen port '$lspec', skipped"
+		return 1
+	}
+	[ "$tcount" -gt 0 ] || {
+		logger -t socat "rule $sid has an invalid target port '$tspec', skipped"
+		return 1
+	}
+	[ "$lcount" -le "$MAX_PORTS" ] || {
+		logger -t socat "rule $sid spans $lcount ports (max $MAX_PORTS), skipped"
+		return 1
+	}
+
+	bind=$(resolve_bind "$sid")
+	if [ -z "$bind" ] && bind_pending "$sid"; then
+		return 1
+	fi
+
+	i=1
+	while [ "$i" -le "$lcount" ]; do
+		lp=$(nth_port "$lports" "$i")
+
+		if [ "$tcount" -eq 1 ]; then
+			# every listen port is forwarded to the same target port
+			tp=$(nth_port "$tports" 1)
+		elif [ "$i" -le "$tcount" ]; then
+			# equal length ranges are forwarded one to one; a shorter
+			# target range stops the pairing at its last port
+			tp=$(nth_port "$tports" "$i")
+		else
+			break
+		fi
+
+		laddr=$(compose_listen_addr "$proto" "$lp" "$bind")
+		taddr=$(compose_target_addr "$tproto" "$tip" "$tp")
+
+		procd_open_instance
+		procd_set_param command "$PROG" "$laddr" "$taddr"
+		[ -n "$user" ] && procd_set_param user "$user"
+		procd_set_param stdout 1
+		procd_set_param stderr 1
+		procd_set_param respawn
+		procd_close_instance
+
+		i=$((i + 1))
+	done
+}
+
+socat_instance()
+{
+	[ "$2" = 0 ] || {
+		echo "validation failed"
+		return 1
+	}
+
+	[ "$enable" = "0" ] && return 1
+
+	start_rule_instances "$1"
+}
+
+start_service () {
+	config_load "$NAME"
+	config_foreach validate_section_socat socat socat_instance
+}
+
+add_iface_trigger()
+{
+	local iface
+
+	config_get iface "$1" listen_iface
+	[ -n "$iface" ] &&
+		procd_add_interface_trigger "interface.*" "$iface" /etc/init.d/socat restart
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$NAME"
+	procd_add_validation validate_section_socat
+
+	config_load "$NAME"
+	config_foreach add_iface_trigger socat
+}

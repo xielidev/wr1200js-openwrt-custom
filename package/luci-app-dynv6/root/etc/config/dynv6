@@ -1,0 +1,5 @@
+config service 'main'
+	option enabled '0'
+	option interface 'wan6'
+	option hostname ''
+	option token ''

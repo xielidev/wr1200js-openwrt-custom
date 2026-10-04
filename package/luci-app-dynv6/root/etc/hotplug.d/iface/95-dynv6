@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# Re-publish the interface IPv6 address to dynv6 whenever the interface comes
+# up or its addresses change.
+
+case "$ACTION" in
+	ifup|ifupdate) ;;
+	*) exit 0 ;;
+esac
+
+[ "$(uci -q get dynv6.main.enabled)" = "1" ] || exit 0
+
+iface=$(uci -q get dynv6.main.interface)
+[ -n "$iface" ] || iface=wan6
+[ "$INTERFACE" = "$iface" ] || exit 0
+
+# give netifd a moment to publish the new address before reading it back
+( sleep 2; /usr/libexec/dynv6-update ) &
